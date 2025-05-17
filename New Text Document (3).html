@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Advanced Twilio Voice App</title>
+  <script src="https://media.twiliocdn.com/sdk/js/voice/releases/1.13.1/twilio.min.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background-color: #1a1a1a;
+      color: #f2f2f2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px;
+    }
+
+    h1 {
+      margin-bottom: 20px;
+      font-size: 32px;
+    }
+
+    input, button, select {
+      padding: 12px;
+      font-size: 16px;
+      margin: 10px 5px;
+      border-radius: 8px;
+      border: none;
+      outline: none;
+    }
+
+    input {
+      width: 280px;
+    }
+
+    button {
+      background-color: #4CAF50;
+      color: white;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background-color: #45a049;
+    }
+
+    #hangupBtn {
+      background-color: #e53935;
+    }
+
+    #status {
+      font-size: 18px;
+      margin-top: 15px;
+      padding: 10px;
+      border-radius: 6px;
+      width: 300px;
+      text-align: center;
+    }
+
+    .status-ready {
+      background-color: #2e7d32;
+    }
+
+    .status-calling {
+      background-color: #1565c0;
+    }
+
+    .status-error {
+      background-color: #b71c1c;
+    }
+
+    .log {
+      margin-top: 30px;
+      background-color: #333;
+      padding: 15px;
+      border-radius: 8px;
+      width: 400px;
+      max-height: 200px;
+      overflow-y: auto;
+      font-size: 14px;
+    }
+
+    #timer {
+      margin-top: 10px;
+      font-size: 16px;
+      color: #ccc;
+    }
+
+    select {
+      background-color: #2c2c2c;
+      color: white;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Advanced Twilio Voice App</h1>
+
+  <input id="to" type="text" placeholder="Phone number or client name" />
+  <br />
+  <button onclick="startCall()">Call</button>
+  <button id="hangupBtn" onclick="endCall()">Hang Up</button>
+  <button onclick="toggleMute()">Mute / Unmute</button>
+  <br />
+  <select id="audioOutput"></select>
+
+  <div id="status" class="status-ready">Status: Idle</div>
+  <div id="timer">Duration: 0s</div>
+
+  <div class="log" id="logBox"></div>
+
+  <script>
+    let device;
+    let connection;
+    let isMuted = false;
+    let startTime;
+    let timerInterval;
+
+    const backendUrl = 'https://call-service1-6534.twil.io/path_1';
+    const statusBox = document.getElementById('status');
+    const logBox = document.getElementById('logBox');
+    const timerDisplay = document.getElementById('timer');
+    const audioSelect = document.getElementById('audioOutput');
+
+    async function fetchToken() {
+      const res = await fetch(`${backendUrl}?identity=user1`);
+      const data = await res.json();
+      return data.token;
+    }
+
+    function log(msg) {
+      const time = new Date().toLocaleTimeString();
+      logBox.innerHTML += `[${time}] ${msg}<br>`;
+      logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    function setStatus(text, statusClass = '') {
+      statusBox.innerText = `Status: ${text}`;
+      statusBox.className = '';
+      if (statusClass) statusBox.classList.add(statusClass);
+    }
+
+    async function setupDevice() {
+      const token = await fetchToken();
+      device = new Twilio.Device(token, { debug: true });
+
+      device.on('ready', () => setStatus('Ready', 'status-ready'));
+      device.on('error', err => {
+        alert("Device error: " + err.message);
+        setStatus('Error', 'status-error');
+        log('Error: ' + err.message);
+      });
+      device.on('connect', conn => {
+        connection = conn;
+        setStatus('In Call', 'status-calling');
+        startTimer();
+        log('Connected.');
+      });
+      device.on('disconnect', () => {
+        stopTimer();
+        setStatus('Idle', 'status-ready');
+        log('Call disconnected.');
+        connection = null;
+      });
+
+      Twilio.Device.audio.on('deviceChange', updateAudioDevices);
+      await Twilio.Device.audio.requestPermissions();
+      updateAudioDevices();
+    }
+
+    async function updateAudioDevices() {
+      const devices = await Twilio.Device.audio.availableOutputDevices;
+      audioSelect.innerHTML = '';
+      devices.forEach((device, id) => {
+        const option = document.createElement('option');
+        option.value = id;
+        option.text = device.label || id;
+        audioSelect.appendChild(option);
+      });
+
+      audioSelect.onchange = () => {
+        Twilio.Device.audio.setOutputDevice(audioSelect.value);
+        log('Audio output device changed.');
+      };
+    }
+
+    async function startCall() {
+      if (!device) await setupDevice();
+
+      const to = document.getElementById('to').value;
+      if (!to) return alert("Please enter a phone number or client identity.");
+
+      connection = device.connect({ To: to });
+      setStatus('Calling...', 'status-calling');
+      log('Dialing ' + to);
+    }
+
+    function endCall() {
+      if (device) device.disconnectAll();
+    }
+
+    function toggleMute() {
+      if (!connection) return;
+      isMuted = !isMuted;
+      connection.mute(isMuted);
+      log(isMuted ? 'Muted' : 'Unmuted');
+    }
+
+    function startTimer() {
+      startTime = Date.now();
+      timerInterval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        timerDisplay.innerText = `Duration: ${elapsed}s`;
+      }, 1000);
+    }
+
+    function stopTimer() {
+      clearInterval(timerInterval);
+      timerDisplay.innerText = 'Duration: 0s';
+    }
+
+    setupDevice(); // Pre-initialize on load
+  </script>
+</body>
+</html>
